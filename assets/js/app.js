@@ -16,6 +16,7 @@ const SESSION_KEY = 'vhip_session_token';
 let currentUser = null; // { userId, email, name, department, role, token }
 let currentPermissions = new Set();
 let pendingRegistrationEmail = '';
+let pendingResetEmail = ''; // email đang trong luồng Quên mật khẩu (giữa bước gửi mã và bước nhập mã)
 let registrationOptions = { departments: [], roles: [] };
 let ROLE_LABELS = {};
 let ROLE_OPTIONS = [];
@@ -182,6 +183,9 @@ function switchAuthTab(tab) {
     document.getElementById('form-login').style.display = isLogin ? 'grid' : 'none';
     document.getElementById('form-register').style.display = isLogin ? 'none' : 'grid';
     document.getElementById('form-otp').style.display = 'none';
+    // Ẩn luôn 2 form Quên mật khẩu, nếu không bấm tab trong lúc đang đặt lại mật khẩu sẽ hiện chồng 2 form.
+    document.getElementById('form-forgot').style.display = 'none';
+    document.getElementById('form-reset').style.display = 'none';
     document.getElementById('auth-subtitle').innerText = isLogin ? 'Đăng nhập để tiếp tục' : 'Đăng ký bằng Email và xác thực OTP';
     clearAuthError();
 }
@@ -301,6 +305,91 @@ function backToRegistration() {
     document.getElementById('form-register').style.display = 'grid';
     document.getElementById('auth-subtitle').innerText = 'Đăng ký bằng Email và xác thực OTP';
     clearAuthError();
+}
+
+// ============================================================================
+// QUÊN MẬT KHẨU
+// Bước 1: nhập email -> server gửi mã 6 số. Bước 2: nhập mã + mật khẩu mới -> server mới đổi.
+// Server luôn trả cùng một câu trả lời dù email có tồn tại hay không, nên thông báo ở đây
+// viết kiểu "Nếu email có tài khoản..." để không lộ email nào có trong hệ thống.
+// ============================================================================
+function showAuthForm(formId, subtitle) {
+    ['form-login', 'form-register', 'form-otp', 'form-forgot', 'form-reset'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = id === formId ? 'grid' : 'none';
+    });
+    document.getElementById('auth-subtitle').innerText = subtitle;
+    clearAuthError();
+}
+
+function openForgotPassword() {
+    // Điền sẵn email đã gõ ở form đăng nhập, đỡ phải gõ lại.
+    const loginEmail = document.getElementById('loginEmail').value.trim();
+    const forgotEmail = document.getElementById('forgotEmail');
+    if (loginEmail && !forgotEmail.value) forgotEmail.value = loginEmail;
+    showAuthForm('form-forgot', 'Đặt lại mật khẩu qua email');
+    forgotEmail.focus();
+}
+
+async function sendPasswordResetCode(isResend) {
+    const email = isResend ? pendingResetEmail : document.getElementById('forgotEmail').value.trim();
+    const btn = document.getElementById(isResend ? 'btn-resend-reset-code' : 'btn-send-reset-code');
+    const normalText = isResend ? 'Chưa nhận được mã? Gửi lại mã' : '✉️ Gửi mã xác nhận';
+    clearAuthError();
+    if (!email) return showAuthError('Anh/chị nhập email đăng nhập nhé.');
+    setButtonBusy(btn, true, '⏳ Đang gửi mã...', normalText);
+    try {
+        const data = await apiPost('passwordResetStart', { email });
+        if (!data || !data.success) return showAuthError((data && data.error) || 'Không thể gửi mã xác nhận.');
+        pendingResetEmail = email;
+        showAuthForm('form-reset', 'Nhập mã xác nhận và mật khẩu mới');
+        document.getElementById('reset-hint').innerText =
+            `Nếu ${email} có tài khoản đang hoạt động, mã 6 số đã được gửi tới email này. ` +
+            `Mã có hiệu lực ${data.otpMinutes || 10} phút. Không thấy thì anh/chị kiểm tra cả mục Spam/Thư rác.`;
+        if (isResend) showAlert('Đã gửi lại mã mới. Mã cũ không còn dùng được nữa.', 'success');
+        document.getElementById('resetOtp').focus();
+    } catch (err) {
+        console.error('Lỗi gửi mã đặt lại mật khẩu:', err);
+        showAuthError('Không kết nối được máy chủ. Vui lòng thử lại.');
+    } finally {
+        setButtonBusy(btn, false, '', normalText);
+    }
+}
+
+async function submitPasswordReset() {
+    const otp = document.getElementById('resetOtp').value.trim();
+    const newPassword = document.getElementById('resetNewPassword').value;
+    const confirmPassword = document.getElementById('resetConfirmPassword').value;
+    const btn = document.getElementById('btn-submit-reset');
+    clearAuthError();
+    if (!pendingResetEmail) return openForgotPassword();
+    if (!/^\d{6}$/.test(otp)) return showAuthError('Mã xác nhận phải gồm đúng 6 chữ số.');
+    if (newPassword.length < 8) return showAuthError('Mật khẩu mới phải có ít nhất 8 ký tự.');
+    // Kiểm tra gõ lại ngay trên máy để bắt lỗi gõ nhầm trước khi tốn một lần thử mã.
+    if (newPassword !== confirmPassword) return showAuthError('Hai lần nhập mật khẩu mới chưa khớp nhau.');
+    setButtonBusy(btn, true, '⏳ Đang đặt lại...', '✅ Đặt lại mật khẩu');
+    try {
+        const data = await apiPost('passwordResetVerify', { email: pendingResetEmail, otp, newPassword });
+        if (!data || !data.success) return showAuthError((data && data.error) || 'Đặt lại mật khẩu không thành công.');
+        const doneEmail = pendingResetEmail;
+        pendingResetEmail = '';
+        // Xóa trắng các ô mật khẩu/mã để không còn sót trên màn hình.
+        ['resetOtp', 'resetNewPassword', 'resetConfirmPassword', 'forgotEmail'].forEach(id => { document.getElementById(id).value = ''; });
+        document.getElementById('loginEmail').value = doneEmail;
+        document.getElementById('loginPassword').value = '';
+        switchAuthTab('login');
+        showAlert(
+            'Đặt lại mật khẩu thành công.\n\nAnh/chị đăng nhập bằng mật khẩu mới. Các thiết bị đang đăng nhập bằng mật khẩu cũ đã được đăng xuất.',
+            'success',
+            { title: 'Đã đổi mật khẩu', buttonText: 'OK' }
+        );
+        document.getElementById('loginPassword').focus();
+    } catch (err) {
+        console.error('Lỗi đặt lại mật khẩu:', err);
+        showAuthError('Không kết nối được máy chủ. Vui lòng thử lại.');
+    } finally {
+        setButtonBusy(btn, false, '', '✅ Đặt lại mật khẩu');
+    }
 }
 
 function doLogout() {
@@ -701,6 +790,16 @@ function bindStaticUiEvents() {
     on('otpCode', 'keydown', event => { if (event.key === 'Enter') verifyRegistrationOtp(); });
     on('btn-verify-otp', 'click', verifyRegistrationOtp);
     on('btn-otp-back', 'click', backToRegistration);
+    on('btn-forgot-password', 'click', openForgotPassword);
+    on('forgotEmail', 'keydown', event => { if (event.key === 'Enter') sendPasswordResetCode(false); });
+    on('btn-send-reset-code', 'click', () => sendPasswordResetCode(false));
+    on('btn-forgot-back', 'click', () => switchAuthTab('login'));
+    on('resetOtp', 'keydown', event => { if (event.key === 'Enter') document.getElementById('resetNewPassword')?.focus(); });
+    on('resetNewPassword', 'keydown', event => { if (event.key === 'Enter') document.getElementById('resetConfirmPassword')?.focus(); });
+    on('resetConfirmPassword', 'keydown', event => { if (event.key === 'Enter') submitPasswordReset(); });
+    on('btn-submit-reset', 'click', submitPasswordReset);
+    on('btn-resend-reset-code', 'click', () => sendPasswordResetCode(true));
+    on('btn-reset-back', 'click', openForgotPassword);
 
     on('user-account-trigger', 'click', toggleAccountDropdown);
     on('account-dropdown', 'click', event => event.stopPropagation());
