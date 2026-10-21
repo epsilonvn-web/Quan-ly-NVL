@@ -139,6 +139,9 @@
             font-size: 12.5px; margin-bottom: 14px; text-align: left; display: none;
         }
         .login-footer-note { margin-top: 20px; font-size: 11px; color: #94a3b8; }
+        /* Nút dạng liên kết (Quên mật khẩu / Gửi lại mã) - nhẹ hơn nút chính để không tranh chú ý với nút Đăng nhập */
+        .auth-link-btn { background: none; border: none; padding: 4px; color: var(--vh-blue-dark); font-size: 12.5px; font-weight: 700; cursor: pointer; text-decoration: underline; justify-self: center; }
+        .auth-link-btn:disabled { color: #94a3b8; cursor: not-allowed; text-decoration: none; }
 
         /* ===== MODAL THÔNG BÁO (thay cho alert() mặc định xấu của trình duyệt) ===== */
         #friendly-alert-overlay {
@@ -610,7 +613,27 @@
                 <input type="email" id="loginEmail" class="form-control" placeholder="Email" maxlength="254" autocomplete="email">
                 <input type="password" id="loginPassword" class="form-control" placeholder="Mật khẩu" maxlength="128" autocomplete="current-password">
                 <button type="button" class="btn-login" id="btn-do-login">🔐 Đăng nhập</button>
+                <button type="button" class="auth-link-btn" id="btn-forgot-password">Quên mật khẩu?</button>
                 <div class="login-footer-note">Đăng nhập bằng Email + Mật khẩu.</div>
+            </div>
+
+            <!-- QUÊN MẬT KHẨU - bước 1: nhập email để nhận mã -->
+            <div id="form-forgot" class="auth-grid" style="display:none;">
+                <div class="auth-hint">Nhập email đăng nhập, hệ thống sẽ gửi mã xác nhận 6 số để anh/chị đặt mật khẩu mới.</div>
+                <input type="email" id="forgotEmail" class="form-control" placeholder="Email đăng nhập" maxlength="254" autocomplete="email">
+                <button type="button" class="btn-login" id="btn-send-reset-code">✉️ Gửi mã xác nhận</button>
+                <button type="button" class="btn-refresh" id="btn-forgot-back">← Quay lại đăng nhập</button>
+            </div>
+
+            <!-- QUÊN MẬT KHẨU - bước 2: nhập mã + mật khẩu mới -->
+            <div id="form-reset" class="auth-grid" style="display:none;">
+                <div class="otp-box" id="reset-hint">Mã 6 số đã được gửi về email.</div>
+                <input type="text" id="resetOtp" class="form-control" placeholder="Nhập mã 6 số" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code">
+                <input type="password" id="resetNewPassword" class="form-control" placeholder="Mật khẩu mới (tối thiểu 8 ký tự)" minlength="8" maxlength="128" autocomplete="new-password">
+                <input type="password" id="resetConfirmPassword" class="form-control" placeholder="Nhập lại mật khẩu mới" minlength="8" maxlength="128" autocomplete="new-password">
+                <button type="button" class="btn-login" id="btn-submit-reset">✅ Đặt lại mật khẩu</button>
+                <button type="button" class="auth-link-btn" id="btn-resend-reset-code">Chưa nhận được mã? Gửi lại mã</button>
+                <button type="button" class="btn-refresh" id="btn-reset-back">← Đổi email khác</button>
             </div>
 
             <div id="form-register" class="auth-grid" style="display:none;">
@@ -1205,7 +1228,7 @@
     </div>
 
     <!-- Logic ứng dụng đặt cuối body: DOM đã dựng xong trước khi app.js khởi tạo -->
-    <script src="assets/js/app.js?v=20260926-zero1"></script>
+    <script src="assets/js/app.js?v=20261021-reset1"></script>
 
 </body>
 </html>
